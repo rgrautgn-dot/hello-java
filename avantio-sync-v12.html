@@ -1,0 +1,55 @@
+<!doctype html>
+<html lang="ca">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="theme-color" content="#f5f5f7">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="default">
+<meta name="apple-mobile-web-app-title" content="Reserves">
+<title>Reserves Família Grau Borrell · Med.Way</title>
+<style>
+:root{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;color:#1d1d1f;background:#f5f5f7}*{box-sizing:border-box}body{margin:0}.wrap{max-width:760px;margin:auto;padding:22px 16px 48px}h1{font-size:28px;margin:4px 0 4px}.sub{color:#6e6e73;margin-bottom:18px}.card{background:#fff;border-radius:18px;padding:18px;margin:12px 0;box-shadow:0 1px 10px rgba(0,0,0,.06)}button,label.btn{display:inline-block;border:0;border-radius:12px;padding:12px 15px;font-size:16px;font-weight:650;background:#111;color:#fff;text-decoration:none;cursor:pointer;margin:4px 4px 4px 0}button.alt{background:#e9e9ee;color:#111}button:disabled{opacity:.35;cursor:default}input[type=file]{display:none}.grid{display:grid;grid-template-columns:repeat(3,1fr);gap:9px;margin:12px 0}.metric{background:#f6f6f8;border-radius:14px;padding:13px}.metric b{display:block;font-size:25px}.good{color:#16793b}.warn{color:#9d6200}.bad{color:#b42318}.muted{color:#6e6e73}.small{font-size:13px}.status{padding:11px 12px;border-radius:12px;background:#f6f6f8;margin-top:10px;white-space:pre-line}.hidden{display:none!important}table{width:100%;border-collapse:collapse;font-size:13px}th,td{text-align:left;padding:8px 6px;border-bottom:1px solid #ececf0;vertical-align:top}.scroll{overflow:auto;max-height:330px}@media(max-width:600px){.grid{grid-template-columns:1fr}.wrap{padding-top:14px}}
+</style>
+</head>
+<body><div class="wrap">
+<h1>Reserves Família Grau Borrell</h1><div class="sub">Med.Way · Avantio → Google Calendar · V1.2</div>
+<div class="card"><h2>1 · Carrega el CSV d’Avantio</h2><label class="btn">Seleccionar CSV<input id="file" type="file" accept=".csv,text/csv"></label><button class="alt" id="reset">Reinicialitzar base</button><div id="base" class="small muted"></div><div id="status" class="status">Selecciona l’últim “Listado de reservas.csv”.</div></div>
+<div id="changesCard" class="card hidden"><h2>2 · Canvis detectats</h2><div class="grid"><div class="metric"><b class="good" id="newN">0</b>Noves</div><div class="metric"><b class="warn" id="chgN">0</b>Modificades</div><div class="metric"><b class="bad" id="delN">0</b>Cancel·lades</div></div><div id="details"></div></div>
+<div class="card"><h2>3 · Google Calendar</h2><button id="sync" disabled>Sincronitzar</button><button class="alt" id="ping">Provar connexió</button><div id="out" class="status">Sense proves encara.</div></div>
+<div class="card small"><b>Calendaris:</b> La Mora A · Med.Way, La Mora B · Med.Way, La Mora C · Med.Way i Margalló · Med.Way.<br><b>Privacitat:</b> el CSV es processa al teu iPhone. La web pública no conté cap reserva ni cap preu. Només s’envien al sincronitzador les reserves que han canviat.</div>
+</div>
+<script>
+const WEBHOOK='https://hook.eu2.make.com/n87p64d7l98gs6yqcnmbkjsj8rfm16wj';
+const STORAGE='graubo_medway_avantio_v12';
+const AUTHKEY='graubo_medway_auth_v12';
+const CALS={
+ 'La Mora A':'68e7fc9a273f9c647e2215ad6b5e59ef7ff64e3fe89df944a8e25cd28570d5c6@group.calendar.google.com',
+ 'La Mora B':'53dc769b728ef34f5d763c625a6894368d076d797900ba4d0df1388e3f858475@group.calendar.google.com',
+ 'La Mora C':'7449c0493ed6155debcab66a401bcfa1453da3ec1fd1bce7654372a51a30c71a@group.calendar.google.com',
+ 'Margalló':'6b4b2616959d52490b5e57e83225fdf46e9db03c316ede9d553f1df94c2a9bf0@group.calendar.google.com'
+};
+const FIELDS=['Nombre alojamiento','Fecha entrada','Fecha salida','Estado','Noches','Adultos','Niños','Bebés','Precio','Portal'];
+let current=[],diff={create:[],update:[],remove:[]};
+const $=id=>document.getElementById(id);
+(function initKey(){const u=new URL(location.href),k=u.searchParams.get('key');if(k){localStorage.setItem(AUTHKEY,k);u.searchParams.delete('key');history.replaceState(null,'',u.toString())}})();
+function prop(s){return String(s||'').trim().replace(/^\d+\s*-\s*/,'').replace('Margallo','Margalló')}
+function norm(o){const r={};['Localizador','Fecha alta','Fecha entrada','Fecha salida','Estado','Noches','Adultos','Niños','Bebés','Nombre alojamiento','Precio','Portal'].forEach(k=>r[k]=String(o[k]??'').trim());r['Nombre alojamiento']=prop(r['Nombre alojamiento']);return r}
+function splitLine(line,d){let a=[],v='',q=false;for(let i=0;i<line.length;i++){const c=line[i];if(c==='"'){if(q&&line[i+1]==='"'){v+='"';i++}else q=!q}else if(c===d&&!q){a.push(v);v=''}else v+=c}a.push(v);return a}
+function detectDelimiter(line){const ds=[',',';','\t'];let best=',',score=-1;for(const d of ds){const n=splitLine(line,d).length;if(n>score){score=n;best=d}}return best}
+function parseCSV(text){const lines=text.replace(/^\uFEFF/,'').split(/\r?\n/).filter(x=>x.trim().length);const hi=lines.findIndex(x=>/Localizador/i.test(x)&&/Fecha entrada/i.test(x)&&/Nombre alojamiento/i.test(x));if(hi<0)throw Error('No trobo la capçalera d’Avantio.');const d=detectDelimiter(lines[hi]),headers=splitLine(lines[hi],d).map(x=>x.trim()),rows=[];for(const line of lines.slice(hi+1)){const vals=splitLine(line,d),o={};headers.forEach((h,i)=>o[h]=vals[i]??'');const r=norm(o);if(r.Localizador&&CALS[r['Nombre alojamiento']])rows.push(r)}if(!rows.length)throw Error('El CSV no conté reserves de La Mora/Margalló.');return rows}
+function getBase(){try{return JSON.parse(localStorage.getItem(STORAGE)||'null')}catch{return null}}
+function setBase(rows){localStorage.setItem(STORAGE,JSON.stringify(rows))}
+function dateISO(s){const m=String(s).match(/(\d{1,2})\/(\d{1,2})\/(\d{4})/);return m?`${m[3]}-${m[2].padStart(2,'0')}-${m[1].padStart(2,'0')}`:''}
+function eventId(ref){let a=2166136261>>>0,b=3335557771>>>0;for(const c of String(ref)){a=Math.imul(a^c.charCodeAt(0),16777619)>>>0;b=Math.imul(b^c.charCodeAt(0),2246822519)>>>0}return `graubo${a.toString(16).padStart(8,'0')}${b.toString(16).padStart(8,'0')}`}
+function toAction(type,r){return{action:type,localizador:r.Localizador,eventId:eventId(r.Localizador),calendarId:CALS[r['Nombre alojamiento']],allotjament:r['Nombre alojamiento'],entrada:dateISO(r['Fecha entrada']),sortida:dateISO(r['Fecha salida']),estat:r.Estado,nits:r.Noches,adults:r.Adultos,nens:r['Niños'],bebes:r['Bebés'],preu:r.Precio,portal:r.Portal}}
+function compute(rows,base){const B=new Map(base.map(r=>[r.Localizador,norm(r)])),C=new Map(rows.map(r=>[r.Localizador,norm(r)])),out={create:[],update:[],remove:[]};for(const [id,r] of C){const old=B.get(id);if(!old)out.create.push(toAction('create',r));else if(FIELDS.some(f=>String(old[f]??'')!==String(r[f]??'')))out.update.push(toAction('update',r))}for(const [id,r] of B)if(!C.has(id))out.remove.push(toAction('delete',r));return out}
+function renderBase(){const b=getBase();$('base').textContent=b?`Base desada en aquest iPhone: ${b.length} reserves.`:'Aquest iPhone encara no té una base inicial.'}
+function renderDiff(){$('changesCard').classList.remove('hidden');$('newN').textContent=diff.create.length;$('chgN').textContent=diff.update.length;$('delN').textContent=diff.remove.length;const all=[...diff.create,...diff.update,...diff.remove],labels={create:'NOVA',update:'CANVI',delete:'CANCEL·LACIÓ'};if(!all.length){$('details').innerHTML='<div class="status good"><b>Sense canvis.</b> El CSV coincideix amb la base d’aquest iPhone.</div>';return}$('details').innerHTML='<div class="scroll"><table><tr><th>Tipus</th><th>Allotjament</th><th>Dates</th><th>Ref.</th></tr>'+all.map(x=>`<tr><td>${labels[x.action]}</td><td>${x.allotjament}</td><td>${x.entrada} → ${x.sortida}</td><td>${x.localizador}</td></tr>`).join('')+'</table></div>'}
+async function post(payload){const auth=localStorage.getItem(AUTHKEY)||'';if(!auth)throw Error('Falta la clau d’autorització. Torna a obrir l’enllaç original de configuració.');payload.auth=auth;const r=await fetch(WEBHOOK,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(payload)}),t=await r.text();if(!r.ok)throw Error(`HTTP ${r.status}: ${t||'Error'}`);return t}
+$('file').onchange=async e=>{try{current=parseCSV(await e.target.files[0].text());$('status').textContent=`CSV correcte: ${current.length} reserves pròpies.`;const base=getBase();if(!base){diff={create:[],update:[],remove:[]};$('changesCard').classList.add('hidden');$('sync').textContent='Desar com a base inicial';$('sync').disabled=false;$('out').textContent='És la primera vegada en aquest iPhone. Desa aquest CSV com a base; no modificaré el calendari.'}else{diff=compute(current,base);$('sync').textContent='Sincronitzar';$('sync').disabled=false;renderDiff()}}catch(err){$('status').textContent='Error: '+err.message}}
+$('sync').onclick=async()=>{if(!current.length)return;const base=getBase();if(!base){setBase(current);renderBase();$('out').textContent=`Base inicial desada (${current.length} reserves). Ja està preparat per al proper CSV.`;$('sync').textContent='Sincronitzar';return}const actions=[...diff.create,...diff.update,...diff.remove];if(!actions.length){$('out').textContent='No hi ha canvis per sincronitzar.';return}$('sync').disabled=true;$('out').textContent=`Enviant ${actions.length} canvis…`;try{const response=await post({type:'sync',version:'1.2',sentAt:new Date().toISOString(),actions});setBase(current);renderBase();$('out').textContent=`Sincronització enviada correctament (${actions.length} canvis). ${response||''}`;diff={create:[],update:[],remove:[]};renderDiff()}catch(err){$('out').textContent='Ha fallat; la base NO s’ha actualitzat: '+err.message}finally{$('sync').disabled=false}}
+$('ping').onclick=async()=>{try{$('out').textContent='Provant connexió…';const t=await post({type:'ping',version:'1.2',sentAt:new Date().toISOString(),actions:[]});$('out').textContent='Connexió correcta. '+t}catch(err){$('out').textContent='Error de connexió: '+err.message}}
+$('reset').onclick=()=>{if(confirm('Vols esborrar la base local? Hauràs de tornar a carregar el CSV actual.')){localStorage.removeItem(STORAGE);current=[];diff={create:[],update:[],remove:[]};$('sync').disabled=true;$('changesCard').classList.add('hidden');$('status').textContent='Base esborrada.';$('out').textContent='Carrega el CSV actual per crear una nova base.';renderBase()}}
+renderBase();
+</script></body></html>
